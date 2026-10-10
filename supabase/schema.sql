@@ -44,6 +44,38 @@ end;
 $fn$;
 
 -- -----------------------------------------------------------------------------
+-- Idempotent "add unique constraint if absent".
+--
+-- A plain `drop constraint if exists` + `add constraint` would be idempotent in
+-- isolation, but these particular constraints are *referenced* by the composite
+-- foreign keys on `applications` and `candidate_assessments`, so dropping one
+-- fails with "other objects depend on it" on a re-run. Checking pg_constraint
+-- first keeps the migration safely repeatable.
+-- -----------------------------------------------------------------------------
+create or replace function public.tf_add_unique_if_absent(
+  target_table text,
+  constraint_name text,
+  column_list text
+)
+returns void
+language plpgsql
+as $fn$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = constraint_name
+      and conrelid = format('public.%I', target_table)::regclass
+  ) then
+    execute format(
+      'alter table public.%I add constraint %I unique (%s)',
+      target_table, constraint_name, column_list
+    );
+  end if;
+end;
+$fn$;
+
+-- -----------------------------------------------------------------------------
 -- organizations
 -- -----------------------------------------------------------------------------
 create table if not exists public.organizations (
@@ -101,8 +133,7 @@ create table if not exists public.jobs (
 -- Composite unique key so applications can reference (organization_id, job_id)
 -- declaratively. This makes a cross-tenant application impossible at the
 -- database level, not only at the policy level.
-alter table public.jobs drop constraint if exists jobs_org_id_unique;
-alter table public.jobs add constraint jobs_org_id_unique unique (organization_id, id);
+select public.tf_add_unique_if_absent('jobs', 'jobs_org_id_unique', 'organization_id, id');
 
 create index if not exists jobs_org_status_idx on public.jobs (organization_id, status);
 create index if not exists jobs_org_created_idx on public.jobs (organization_id, created_at desc);
@@ -135,8 +166,7 @@ create table if not exists public.candidates (
   )
 );
 
-alter table public.candidates drop constraint if exists candidates_org_id_unique;
-alter table public.candidates add constraint candidates_org_id_unique unique (organization_id, id);
+select public.tf_add_unique_if_absent('candidates', 'candidates_org_id_unique', 'organization_id, id');
 
 create index if not exists candidates_org_created_idx
   on public.candidates (organization_id, created_at desc);
@@ -175,6 +205,12 @@ create table if not exists public.applications (
     foreign key (organization_id, job_id)
     references public.jobs (organization_id, id) on delete cascade
 );
+
+-- Same composite key trick again, so candidate_assessments can reference
+-- (organization_id, application_id) declaratively. This was missed on the first
+-- pass and 003 failed with "no unique constraint matching given keys" - see
+-- PROJECT_LOG.md.
+select public.tf_add_unique_if_absent('applications', 'applications_org_id_unique', 'organization_id, id');
 
 create index if not exists applications_org_stage_idx on public.applications (organization_id, stage);
 create index if not exists applications_job_idx on public.applications (job_id);
