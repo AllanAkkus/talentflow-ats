@@ -60,6 +60,17 @@ export default async function proxy(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
+  /*
+   * API routes authenticate themselves and answer with JSON. Redirecting them
+   * to /login would hand a `fetch()` caller an HTML page with a 307, which
+   * fails at `response.json()` and surfaces as a confusing network error
+   * instead of "Not authenticated". The session refresh above has already run,
+   * so the route handler sees the same session the proxy did.
+   */
+  if (pathname.startsWith("/api/")) {
+    return response;
+  }
+
   if (!user && !isPublicPath(pathname)) {
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
