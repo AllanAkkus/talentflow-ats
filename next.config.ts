@@ -1,9 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
-  cacheComponents: true,
-  partialPrefetching: true,
+  // The whole app is auth-gated and request-scoped, so component-level
+  // caching buys us nothing and only complicates cookie access.
+  cacheComponents: false,
   turbopack: {
     rules: {
       "*.css": {
