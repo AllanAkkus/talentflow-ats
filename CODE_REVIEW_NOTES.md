@@ -2,7 +2,7 @@
 
 The purpose of this document is so you can defend this codebase in a technical
 conversation without having to re-read it. Part 1 explains how it works and why.
-Part 2 is 46 questions a reviewer is likely to ask, with concise answers that
+Part 2 is 66 questions a reviewer is likely to ask, with concise answers that
 match the actual implementation.
 
 Read part 1 once. Skim part 2 the morning of the interview.
@@ -716,11 +716,14 @@ searching "berg" returns only Bergström, when it correctly also returns
 Sandberg. Both are written up in `PROJECT_LOG.md`.
 
 **53. What would you test next?**
-A Playwright smoke test through the real journey — login, create job, add
-candidate, assign, move stage — plus a cross-tenant assertion that customer A
-gets a 404 on customer B's job URL. And `pgTAP` tests for the RLS policies
-themselves, so a policy regression fails in CI rather than in
-`verify-isolation` run by hand.
+Mostly CI wiring rather than new tests. There are already three suites that run
+against a live project - `verify-schema` (24 checks on constraints, foreign
+keys, triggers and cascades), `verify-isolation` (21 cross-tenant attempts as
+real users) and `verify-app` (37 checks driving the rendered app over HTTP,
+including the full create -> assign -> move-stage -> delete journey). What I
+would add is a GitHub Actions workflow that spins up a throwaway Supabase
+project and runs all three on every PR, plus `pgTAP` tests so an RLS policy
+regression fails in CI rather than in a script someone remembers to run.
 
 **54. What would production monitoring look like?**
 Sentry for errors on both server and client, with the release tagged. Vercel
@@ -741,7 +744,96 @@ the whole card a drag handle, and a stage change that fired the server action
 twice because the card's dropdown and the board's handler both called it.
 `PROJECT_LOG.md` records that honestly, including the failures.
 
-**56. What are you least happy with?**
+## From deploying it for real
+
+**56. Did anything break when you pointed it at a real Supabase project?**
+Four things, and that phase was the most productive of the build. Supabase's
+direct database host is IPv6-only and the network had no IPv6, so migrations
+failed with `ENOTFOUND` until I switched to the IPv4 session pooler. Migration
+003 failed outright because I had forgotten a `unique (organization_id, id)` on
+`applications`, so the assessments foreign key had nothing to reference.
+`@supabase/supabase-js` turned out to require Node 22 for native `WebSocket`,
+and the machine had Node 20 - so *every* Supabase call failed. And my own
+migrations table was world-readable. All four are written up in
+`PROJECT_LOG.md`.
+
+**57. How did you find the region for the pooler connection string?**
+I took the project's IPv6 address from DNS and matched it against AWS's
+published `ip-ranges.json`, which put it in `eu-north-1`. Deterministic, rather
+than trying pooler hostnames until one authenticated.
+
+**58. Your `schema_migrations` table was readable by anyone. How did you catch
+that?**
+Because `db-push.ts` does not just run the SQL and report success - it queries
+`pg_class` afterwards and prints RLS status and policy count per table, and
+exits non-zero if a business table has no RLS. That report showed
+`schema_migrations: false, 0 policies`. It sits in `public`, which Supabase
+exposes through PostgREST and grants to `anon`/`authenticated` by default, so
+anyone could have listed our migration filenames. It now has RLS on with no
+policies (deny-by-default) and the grants revoked. The lesson is the one worth
+repeating: have the tooling report reality rather than assume the statement did
+what it said.
+
+**59. Why are your migrations written so defensively?**
+Because they get re-run. The first version used
+`drop constraint if exists` + `add constraint` to be idempotent, which works
+exactly once - those unique constraints are *referenced* by the composite
+foreign keys on `applications` and `candidate_assessments`, so the drop fails
+with "other objects depend on it" the second time. They now go through
+`tf_add_unique_if_absent()`, which checks `pg_constraint` first.
+`npm run db:push -- --force` is what proves it.
+
+**60. Why does a cross-tenant URL return 200 instead of 404?**
+Because the app streams dynamic pages, so by the time `notFound()` is raised the
+response headers have already been flushed and Next cannot change the status.
+The important part is that the *body* is correct - it renders the not-found page
+and contains none of the other tenant's data, which `verify-app` asserts
+explicitly by checking the other tenant's job title, candidate name and
+organization name are all absent. I tried resolving the record in
+`generateMetadata` on the theory that metadata runs before the flush; it does
+not help, because metadata resolves alongside a layout that is already
+awaiting. The proper fix is to resolve the record above the streaming boundary.
+It is in the README's known limitations rather than hidden.
+
+**61. Then why does `/admin/*` get a real 307?**
+Because that check moved into `proxy.ts`, which runs before anything renders.
+It costs one primary-key lookup on the caller's profile and only on `/admin/*`,
+which is a handful of page views rather than every request. The pages still
+call `requireAdminContext()` - the proxy owns the status code, the page owns the
+authorization.
+
+**62. You deleted the browser Supabase client. Doesn't the frontend need one?**
+No, and that surprised me too. Sign-in is a server action and every mutation is
+a server action, so nothing in client code ever constructs a Supabase client.
+It had zero importers, so I deleted it rather than leave scaffolding. A useful
+side effect: the anon key is now in *no* client chunk at all, because no client
+code references it - I verified that by grepping every JS chunk the server
+actually serves.
+
+**63. What is `verify-app` doing that `verify-isolation` does not?**
+`verify-isolation` talks to PostgREST directly, so it proves the *database* is
+isolated. `verify-app` asks the same question of the *product*: it signs in
+through `@supabase/ssr`, captures the session cookies that client writes, and
+replays them on plain `fetch`es - so every request goes through proxy, layout
+guard, Server Component and RLS, exactly as a browser would. That is what
+catches an app-layer mistake that the database would have stopped anyway, like
+a page forgetting to scope a query, or a forged `tf_active_org` cookie.
+
+**64. How do you know the service-role key is not in the deployed bundle?**
+Three independent things. It is not `NEXT_PUBLIC_`-prefixed, so Next never
+inlines it. It is only reachable through `lib/env.server.ts`, which imports
+`"server-only"`, so a client import is a build error. And I grep every JS chunk
+the running server serves for both key prefixes - that check is in
+`PROJECT_LOG.md` and came back clean.
+
+**65. What bit of the setup would trip up the next person?**
+Two things, both now in the README. Node must be 22 or later or every Supabase
+call fails with a confusing WebSocket error. And `NEXT_PUBLIC_*` variables are
+inlined at *build* time, so changing them on Vercel requires a redeploy, not a
+restart - my first local build had placeholder values baked into the client
+bundle for exactly that reason.
+
+**66. What are you least happy with?**
 Account creation not being transactional. A compensating delete is the right
 MVP answer, but "two systems, no shared transaction" is the kind of thing that
 produces a weird support ticket at 2am. Second would be the absence of an audit

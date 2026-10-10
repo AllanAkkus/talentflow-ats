@@ -190,7 +190,13 @@ supabase/
   migrations/                   source of truth for the schema
   schema.sql                    generated bundle, for one-paste setup
 scripts/
-  create-admin.ts seed.ts verify-isolation.ts build-schema.mjs
+  db-push.ts                apply migrations over DATABASE_URL
+  build-schema.mjs          generate supabase/schema.sql from the migrations
+  create-admin.ts           the first platform admin
+  seed.ts seed-data.ts      two fictional demo tenants
+  verify-schema.ts          constraints/FKs/triggers against the real database
+  verify-isolation.ts       cross-tenant attempts as real users (PostgREST)
+  verify-app.ts             full journeys over HTTP, through the rendered app
 tests/                          validation, permissions, pipeline filtering
 ```
 
@@ -337,6 +343,21 @@ exactly what the browser uses** — and then, as that user, attempts to:
 With `--admin-email`/`--admin-password` it also confirms a platform admin does
 see both tenants. The script exits non-zero if any check fails.
 
+That script talks to PostgREST directly. `npm run verify-app` proves the same
+thing **through the rendered product**: it signs in as each persona, replays the
+real session cookies on plain `fetch`es, and asserts that
+
+- a customer's pages contain their own tenant's data and none of the other's;
+- a forged `tf_active_org` cookie does not move a customer to another tenant;
+- `/admin/*` returns a 307 to `/dashboard` for a customer;
+- `POST /api/admin/users` is 403 for a customer and 401 anonymously;
+- AI analysis of another tenant's application is a 404;
+- and the full write journey works — create a job, create a candidate, assign,
+  move the stage, see it on the Kanban, find it by search, then delete it.
+
+Last run against a live project: **24/24** schema checks, **21/21** isolation
+checks, **37/37** app checks.
+
 ## Local development
 
 ```bash
@@ -355,6 +376,12 @@ npm run typecheck    # next typegen && tsc --noEmit
 npm test             # Vitest
 npm run build        # production build
 npm run db:schema    # regenerate supabase/schema.sql from the migrations
+npm run db:push      # apply the migrations to DATABASE_URL
+
+# Against a live project (see Multi-tenancy & RLS and Build below)
+npm run verify-schema
+npm run verify-isolation -- --password "<demo pw>"
+npm run verify-app -- --password "<demo pw>" --admin-email <e> --admin-password "<pw>"
 ```
 
 ## Environment variables
@@ -378,12 +405,24 @@ ignores `.env*` and un-ignores only `.env.example`.
 1. Create a project at [supabase.com](https://supabase.com).
 2. **Settings → API** — copy the project URL, the anon/publishable key and the
    service-role key into `.env.local`.
-3. **SQL Editor → New query** — paste the whole of
-   [`supabase/schema.sql`](supabase/schema.sql) and run it. That file is
-   generated from `supabase/migrations/*.sql` (the source of truth) by
-   `npm run db:schema`, and every statement is idempotent, so re-running it is
-   safe. With the Supabase CLI available you can apply the migrations directly
-   instead.
+3. Apply the schema. Either way works and both are idempotent:
+
+   ```bash
+   # Preferred: applies supabase/migrations/*.sql over DATABASE_URL, records
+   # them in public.schema_migrations, then reports RLS status per table.
+   npm run db:push
+   ```
+
+   `DATABASE_URL` comes from **Connect → ORM/psql** in the dashboard. Note that
+   Supabase's direct host (`db.<ref>.supabase.co`) is **IPv6-only** — if your
+   network has no routable IPv6 address you will get `ENOTFOUND`, and you should
+   use the **Session pooler** string instead
+   (`postgresql://postgres.<ref>:<pw>@aws-0-<region>.pooler.supabase.com:5432/postgres`).
+   `db:push` detects this and says so.
+
+   Or, with no `DATABASE_URL` at all: open **SQL Editor → New query** and paste
+   the whole of [`supabase/schema.sql`](supabase/schema.sql), which
+   `npm run db:schema` generates from the migrations.
 4. Create your admin account:
    ```bash
    npm run create-admin -- --email you@example.com --name "Your Name"
@@ -406,8 +445,21 @@ npm install
 npm run lint       # clean
 npm run typecheck  # clean
 npm test           # 53 tests passing
-npm run build      # clean
+npm run build      # clean, 17 routes
 ```
+
+Against a live Supabase project:
+
+```bash
+npm run verify-schema      # 24/24 - constraints, FKs, triggers, cascades
+npm run verify-isolation   # 21/21 - cross-tenant reads/writes, as real users
+npm run verify-app         # 37/37 - full journeys over HTTP, incl. writes
+```
+
+> **Node 22 or later is required.** `@supabase/supabase-js` needs a native
+> `WebSocket`, which Node 20 does not have — on Node 20 every Supabase call
+> fails with *"Node.js detected but native WebSocket not found."* Vercel's
+> default runtime is already Node 22.
 
 ## Deployment
 
@@ -459,6 +511,17 @@ Things I chose deliberately, and what I traded away:
 
 ## Known limitations
 
+- **Cross-tenant and unknown detail URLs render the not-found page with HTTP
+  200 instead of 404.** The app streams dynamic pages, so by the time
+  `notFound()` is raised the response headers have already been flushed and
+  Next cannot change the status. The body is correct and leaks nothing — this
+  is asserted explicitly in `verify-app`, which checks the other tenant's job
+  title, candidate name and organization name are all absent. Resolving the row
+  in `generateMetadata` was tried and does not help, because metadata resolves
+  alongside a layout that is already awaiting. The clean fix is to resolve the
+  record above the streaming boundary (or in the proxy, at the cost of a query
+  per page view); the `/admin/*` guard *is* done in the proxy for exactly this
+  reason and returns a real 307.
 - A candidate's stage history is not kept — only the current stage.
 - No email invitations or password reset flow; an admin creates the account and
   passes the password on. Users cannot yet change their own password in-app.

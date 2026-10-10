@@ -161,8 +161,156 @@ clean.
 
 ---
 
+## Phase 7 - Connecting to a real Supabase project
+
+This phase was by far the most productive: four problems that nothing local
+could have surfaced.
+
+### 1. Supabase's direct database host is IPv6-only
+
+`npm run db:push` failed with `getaddrinfo ENOTFOUND db.<ref>.supabase.co`.
+DNS showed the cause: the host has an `AAAA` record and **no `A` record**, and
+this machine has no routable IPv6 address.
+
+Rather than guess the pooler region, I pulled the project's IPv6 address out of
+DNS and matched it against AWS's published `ip-ranges.json`, which placed it in
+`eu-north-1`. The IPv4 session pooler
+(`aws-0-eu-north-1.pooler.supabase.com:5432`) then connected first try.
+`db-push.ts` now detects `ENOTFOUND`/`ENETUNREACH` and prints the pooler
+instructions instead of a raw DNS error.
+
+### 2. A missing unique constraint, caught on the first real migration
+
+Migration 003 failed:
+
+```
+there is no unique constraint matching given keys for referenced table "applications"
+```
+
+`candidate_assessments` references `applications (organization_id, id)`, but I
+had only added `unique (organization_id, id)` to `jobs` and `candidates` - not
+to `applications`. A genuine schema bug that no amount of local type-checking
+would have found.
+
+Fixing it exposed a second-order problem: the `drop constraint if exists` +
+`add constraint` idiom I had used to make those statements idempotent **cannot**
+work here, because those constraints are *referenced* by the composite foreign
+keys, so the drop fails with "other objects depend on it" on any re-run. They
+are now added through `tf_add_unique_if_absent()`, which checks `pg_constraint`
+first. `db:push --force` proves the migrations are genuinely repeatable.
+
+### 3. `public.schema_migrations` was world-readable
+
+`db-push.ts` creates its own bookkeeping table, and its RLS report immediately
+flagged it: RLS `false`, 0 policies. It lives in `public`, which Supabase
+exposes through PostgREST and grants to `anon`/`authenticated` by default - so
+anyone could have listed our migration filenames. It now has RLS enabled with
+no policies at all (deny-by-default for every client) and the grants revoked.
+A minor disclosure, but it was found because the tooling reports reality
+instead of assuming success, which is the whole point of writing it that way.
+
+### 4. Node 20 cannot run `@supabase/supabase-js` at all
+
+`create-admin` died with:
+
+```
+Node.js detected but native WebSocket not found.
+```
+
+`@supabase/supabase-js` v2.109 requires a native `WebSocket`, which arrived in
+Node 22. This machine had Node 20.13.1, so **every** Supabase call failed - the
+scripts *and* local `npm run dev`. The earlier builds only succeeded because no
+client is constructed at module scope.
+
+A `winget` install of Node LTS stalled (most likely on a UAC prompt), so I
+downloaded the official Node 22.23.3 zip into a temp directory and ran
+everything with that binary - no elevation, no change to the machine's
+installed Node. Now documented as a hard requirement in the README. Vercel
+already defaults to Node 22.
+
+## Phase 8 - Verifying against the live database
+
+Three scripts, written because "the policies look right" is not verification.
+
+**`verify-schema`** - 24 assertions in one rolled-back transaction, connecting
+as the table owner (RLS deliberately bypassed; this is about the schema).
+Two assertions failed on the first run and **both were my test's fault, not the
+schema's**:
+
+1. The "application stamped with a third organization's id" case reused a
+   candidate/job pair that already had an application, so the *unique*
+   constraint fired first (`23505`) and the composite foreign key was never
+   exercised. Fixed by using a fresh pair - it now correctly fails with
+   `23503`.
+2. The `updated_at` check asserted the timestamp advanced. `now()` is the
+   *transaction* start time in PostgreSQL, so it does not move inside a single
+   transaction. It now asserts what actually matters: that the stored value is
+   `now()` and not the `1999-01-01` the client tried to write.
+
+Final: **24/24**.
+
+**`verify-isolation`** - signs in as a seeded customer from each tenant with the
+anon key and tries to cross the boundary. **21/21**. The `organization_id`
+spoofing insert is rejected with `42501`, which is the RLS `WITH CHECK`
+violation - exactly the clause that exists for it.
+
+**`verify-app`** - the same question asked of the *product* rather than the
+database: real session cookies replayed on plain `fetch`es, so every request
+goes through proxy -> layout guard -> Server Component -> RLS. **37/37**,
+including the full write journey (create job -> create candidate -> assign ->
+move stage -> appears on the Kanban -> found by search -> delete).
+
+### The one thing I could not fix properly
+
+Five of those app checks failed at first: `/admin/*` as a customer, and
+cross-tenant detail URLs, all returned **200** where I expected 307 and 404.
+
+Before assuming the worst I dumped the response bodies. No leak: none of them
+contained the other tenant's job title, candidate name or organization name.
+The cause is streaming SSR - `notFound()` and `redirect()` were raised after the
+shell had been flushed, so Next could not change the status and degraded to a
+200 carrying the not-found UI (or a client-side meta-refresh).
+
+I tried resolving the record in `generateMetadata`, on the theory that metadata
+resolves before the shell is flushed. **It did not work** - metadata resolves
+alongside the `(app)` layout, which is already awaiting the session. I kept that
+change anyway, because it gives the browser tab the job or candidate name and
+`React.cache()` means it costs no extra query, but I corrected the comments so
+they do not claim a fix that did not happen.
+
+What did work: moving the admin check into `proxy.ts`, which runs before
+anything renders, giving a real **307**. That costs one primary-key lookup, and
+only on `/admin/*`.
+
+For the cross-tenant 404 I stopped. The honest position is in README's "Known
+limitations": the status code is wrong, the body is correct and verified to leak
+nothing, and the real fix is to resolve the record above the streaming
+boundary. I changed the test to assert what matters - the not-found copy is
+present and the other tenant's data is absent - rather than loosening it to
+hide the problem.
+
+## Phase 9 - Other findings from probing the running app
+
+- **`lib/supabase/client.ts` had no importers.** Sign-in is a server action and
+  every mutation is a server action, so no client component ever needs a
+  Supabase client. Deleted it. A good side effect: the anon key is now in *no*
+  client chunk at all, because nothing in client code references it - verified
+  by grepping every served JS chunk.
+- **API routes were redirecting instead of returning JSON.** Probing the running
+  production server showed `POST /api/admin/users` answering `307 -> /login`.
+  The route handlers return a proper 401, but the proxy never let them run, so
+  a `fetch()` caller got an HTML page and failed at `response.json()` -
+  surfacing in the AI panel as "could not reach the service". The proxy now
+  refreshes the session for `/api/*` and then steps aside.
+- **The client bundle had placeholder Supabase values baked in.**
+  `NEXT_PUBLIC_*` variables are inlined at *build* time, and the first build ran
+  against the placeholder `.env.local`. Rebuilt once the real values were in
+  place. Worth remembering for Vercel: changing those env vars needs a
+  redeploy, not just a restart.
+
+---
+
 ## Pending / next entries
 
-Entries from here on are added as live Supabase and deployment work happens:
-applying the schema, creating the admin, seeding, running
-`npm run verify-isolation` against the real database, and the Vercel deploy.
+Remaining: push to GitHub, deploy to Vercel with production environment
+variables, and re-run `verify-app --base-url <deployment>` against the live URL.

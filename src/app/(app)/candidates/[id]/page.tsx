@@ -25,11 +25,27 @@ import {
   listLatestAssessments,
 } from "@/lib/data/ats";
 import { isAiConfigured } from "@/lib/env.server";
-import { requireWorkspace } from "@/lib/permissions/workspace";
+import { getWorkspace, requireWorkspace } from "@/lib/permissions/workspace";
 import { formatDate } from "@/lib/utils";
 import type { AiAnalysisResult } from "@/types/ai";
 
-export const metadata: Metadata = { title: "Candidate" };
+/**
+ * Gives the tab the candidate's name; getCandidate is request-cached so the
+ * page body reuses this query. As on the job detail page, the notFound() here
+ * does not change the HTTP status - see the comment there and README.md.
+ */
+export async function generateMetadata(
+  props: PageProps<"/candidates/[id]">,
+): Promise<Metadata> {
+  const { id } = await props.params;
+  const workspace = await getWorkspace();
+  if (!workspace?.organizationId) return { title: "Candidate" };
+
+  const candidate = await getCandidate(workspace.organizationId, id);
+  if (!candidate) notFound();
+
+  return { title: candidate.full_name };
+}
 
 export default async function CandidateDetailPage(
   props: PageProps<"/candidates/[id]">,

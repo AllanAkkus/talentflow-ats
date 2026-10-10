@@ -32,11 +32,33 @@ import {
   listLatestAssessments,
 } from "@/lib/data/ats";
 import { isAiConfigured } from "@/lib/env.server";
-import { requireWorkspace } from "@/lib/permissions/workspace";
+import { getWorkspace, requireWorkspace } from "@/lib/permissions/workspace";
 import { formatDate } from "@/lib/utils";
 import type { AiAnalysisResult } from "@/types/ai";
 
-export const metadata: Metadata = { title: "Job" };
+/**
+ * Resolving the job here gives the browser tab the job's actual title instead
+ * of a generic one. getJob is wrapped in React cache(), so the page body below
+ * reuses this query rather than issuing a second one.
+ *
+ * notFound() is raised here as well as in the body, so an unknown id is caught
+ * at the earliest point. Note it does NOT make the response a 404: this app
+ * streams dynamic pages, and metadata resolves alongside a layout that is
+ * already awaiting, so the shell has been flushed by then. See "Known
+ * limitations" in README.md.
+ */
+export async function generateMetadata(
+  props: PageProps<"/jobs/[id]">,
+): Promise<Metadata> {
+  const { id } = await props.params;
+  const workspace = await getWorkspace();
+  if (!workspace?.organizationId) return { title: "Job" };
+
+  const job = await getJob(workspace.organizationId, id);
+  if (!job) notFound();
+
+  return { title: job.title };
+}
 
 export default async function JobDetailPage(props: PageProps<"/jobs/[id]">) {
   const { id } = await props.params;

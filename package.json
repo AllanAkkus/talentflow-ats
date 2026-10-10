@@ -15,7 +15,8 @@
     "db:schema": "node scripts/build-schema.mjs",
     "verify-isolation": "tsx scripts/verify-isolation.ts",
     "db:push": "tsx scripts/db-push.ts",
-    "verify-schema": "tsx scripts/verify-schema.ts"
+    "verify-schema": "tsx scripts/verify-schema.ts",
+    "verify-app": "tsx scripts/verify-app.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -44,5 +45,8 @@
     "tsx": "^4.23.15",
     "typescript": "^5",
     "vitest": "^4.1.11"
+  },
+  "engines": {
+    "node": ">=22.0.0"
   }
 }

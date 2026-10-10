@@ -1,5 +1,7 @@
 import "server-only";
 
+import { cache } from "react";
+
 import { createClient } from "@/lib/supabase/server";
 import type {
   BoardApplication,
@@ -68,7 +70,13 @@ export async function listJobs(organizationId: string): Promise<JobWithCount[]> 
   }));
 }
 
-export async function getJob(
+/**
+ * Wrapped in React `cache()` so the detail page and its `generateMetadata` can
+ * both ask for the row and only one query is issued per request. That matters
+ * because `generateMetadata` is where notFound() is raised - see the comment on
+ * the job detail page.
+ */
+export const getJob = cache(async function getJob(
   organizationId: string,
   jobId: string,
 ): Promise<Job | null> {
@@ -81,7 +89,7 @@ export async function getJob(
     .maybeSingle();
 
   return data ?? null;
-}
+});
 
 /** Jobs reduced to the fields a picker needs, cheapest query for dropdowns. */
 export async function listJobOptions(
@@ -143,7 +151,8 @@ export async function listCandidates(
   }));
 }
 
-export async function getCandidate(
+/** Request-deduplicated, for the same reason as getJob. */
+export const getCandidate = cache(async function getCandidate(
   organizationId: string,
   candidateId: string,
 ): Promise<Candidate | null> {
@@ -156,7 +165,7 @@ export async function getCandidate(
     .maybeSingle();
 
   return data ?? null;
-}
+});
 
 export async function listCandidateOptions(
   organizationId: string,

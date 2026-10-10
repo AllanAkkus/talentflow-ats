@@ -88,6 +88,35 @@ export default async function proxy(request: NextRequest) {
     return NextResponse.redirect(dashboardUrl);
   }
 
+  /*
+   * Keep non-admins out of /admin/* here, before anything renders.
+   *
+   * The pages also call requireAdminContext(), and that is the authorization.
+   * This block exists for the status code: Next streams dynamic pages, so a
+   * redirect() raised inside the page (or even in generateMetadata, which
+   * resolves alongside the already-awaiting layout) lands after the shell has
+   * been flushed, and Next degrades to a 200 carrying a client-side
+   * meta-refresh. Checking in the proxy gives a real 307.
+   *
+   * The profile read costs one primary-key lookup and only runs on /admin/*,
+   * which is a handful of page views, not every request. It goes through the
+   * RLS-bound client - a user can always read their own profile row.
+   */
+  if (user && pathname.startsWith("/admin")) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (profile?.role !== "admin") {
+      const dashboardUrl = request.nextUrl.clone();
+      dashboardUrl.pathname = "/dashboard";
+      dashboardUrl.search = "";
+      return NextResponse.redirect(dashboardUrl);
+    }
+  }
+
   return response;
 }
 
