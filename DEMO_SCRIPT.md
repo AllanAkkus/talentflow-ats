@@ -19,7 +19,7 @@ men klipp hellre i avsnitt 7 än i 4 och 5.
 
 **Visa:** inloggningssidan.
 
-> "Hej, jag heter Yonas. Det här är TalentFlow, ett mini-ATS som jag byggt på
+> "Hej, jag heter Allan. Det här är TalentFlow, ett mini-ATS som jag byggt på
 > kodtestet. Problemet jag löst är det enklaste tänkbara för en rekryterare: få
 > in jobben, få in kandidaterna, och se var i processen varje kandidat ligger —
 > utan att behöva ett Excel-ark.
