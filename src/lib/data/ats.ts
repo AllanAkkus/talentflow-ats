@@ -2,6 +2,12 @@ import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
 import type {
+  BoardApplication,
+  CandidateWithCount,
+  DashboardStats,
+  JobWithCount,
+} from "@/types/ats";
+import type {
   Application,
   Candidate,
   CandidateAssessment,
@@ -24,35 +30,13 @@ import type {
  * deliberate trade-off in README.md.
  */
 
-export type JobWithCount = Job & { applicationCount: number };
-
-export type CandidateWithCount = Candidate & { applicationCount: number };
-
-export type BoardApplication = {
-  id: string;
-  stage: PipelineStage;
-  notes: string | null;
-  createdAt: string;
-  candidate: Pick<
-    Candidate,
-    "id" | "full_name" | "email" | "linkedin_url" | "location"
-  > & {
-    /**
-     * Whether there is CV text to analyse. Derived rather than selected so the
-     * board never ships 60kB of CV per card to the browser. If the talent pool
-     * ever got large this would become a generated column in Postgres.
-     */
-    hasCvText: boolean;
-  };
-  job: Pick<Job, "id" | "title">;
-};
-
-export type DashboardStats = {
-  openJobs: number;
-  totalJobs: number;
-  candidates: number;
-  byStage: Record<PipelineStage, number>;
-};
+export type {
+  BoardApplication,
+  BoardCandidate,
+  CandidateWithCount,
+  DashboardStats,
+  JobWithCount,
+} from "@/types/ats";
 
 // -----------------------------------------------------------------------------
 // Jobs

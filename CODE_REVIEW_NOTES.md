@@ -223,9 +223,10 @@ from server code, and the module that uses it is marked `"server-only"`.
   creation and the AI call.
 
 The split is visible in the import graph rather than being a convention you have
-to remember: `"server-only"` in `lib/supabase/admin.ts`, `lib/data/*`,
-`lib/auth/session.ts` and `lib/ai/analyze.ts` turns a mistake into a build
-failure.
+to remember. `"server-only"` in `lib/env.server.ts`, `lib/supabase/admin.ts`,
+`lib/data/*`, `lib/auth/session.ts`, `lib/permissions/workspace.ts` and
+`lib/ai/analyze.ts` turns a mistake into a build failure. `lib/env.ts` exports
+*only* the two public Supabase values; every secret is in `env.server.ts`.
 
 ## How the Kanban works
 
@@ -506,11 +507,12 @@ still protected. And if both somehow failed, RLS returns no rows to an
 unauthenticated client, so there would be nothing to render.
 
 **24. How do you know no secret is in the client bundle?**
-Structurally rather than by inspection: Next.js only inlines `NEXT_PUBLIC_`-
-prefixed variables, and the two secrets are not prefixed. On top of that, the
-modules that read them import `"server-only"`, which makes a client import a
-*build error* rather than a silent leak. `.gitignore` ignores `.env*` and
-un-ignores only `.env.example`.
+Structurally rather than by inspection, in three layers. Next.js only inlines
+`NEXT_PUBLIC_`-prefixed variables, and neither secret is prefixed. The secrets
+are reachable only through `lib/env.server.ts`, which imports `"server-only"`,
+so a client import is a *build error* rather than a silent leak. And
+`.gitignore` ignores `.env*`, un-ignoring only `.env.example`. I also grep the
+tracked tree for JWT- and `sk-`-shaped strings before pushing.
 
 **25. What's your worst remaining security gap?**
 Rate limiting. `/api/ai/analyze-candidate` requires a session but a legitimate

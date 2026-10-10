@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { BoardApplication } from "@/lib/data/ats";
+import type { BoardApplication } from "@/types/ats";
 import {
   ALL_JOBS,
   DEFAULT_FILTERS,

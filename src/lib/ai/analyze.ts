@@ -3,7 +3,7 @@ import "server-only";
 import OpenAI from "openai";
 import { z } from "zod";
 
-import { OPENAI_MODEL, openAiKey } from "@/lib/env";
+import { OPENAI_MODEL, openAiKey } from "@/lib/env.server";
 import { aiAnalysisSchema, type AiAnalysis } from "@/lib/validation/schemas";
 
 /**

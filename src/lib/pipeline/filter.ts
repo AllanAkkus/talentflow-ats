@@ -1,5 +1,5 @@
 import { PIPELINE_STAGES } from "@/lib/constants";
-import type { BoardApplication } from "@/lib/data/ats";
+import type { BoardApplication } from "@/types/ats";
 import type { PipelineStage } from "@/types/database";
 
 /**

@@ -174,6 +174,7 @@ src/
   components/
     layout/ dashboard/ jobs/ candidates/ applications/ pipeline/ admin/ ui/
   lib/
+    env.ts env.server.ts        public config vs. server-only secrets
     supabase/ client.ts server.ts admin.ts
     auth/session.ts             who is signed in
     permissions/access.ts       pure, unit-tested authorization helpers
@@ -308,8 +309,9 @@ Defence in depth on top of that:
 3. An admin's active-organization cookie is re-validated every request and
    ignored entirely for customers (`resolveActiveOrganizationId`, unit-tested).
 4. Composite foreign keys make a cross-tenant application physically impossible.
-5. `lib/supabase/admin.ts` imports `"server-only"`, so the build fails if the
-   service-role client is ever pulled into a client component.
+5. `lib/env.server.ts` and `lib/supabase/admin.ts` both import `"server-only"`,
+   so the build fails if a secret or the service-role client is ever pulled into
+   a client component.
 
 ### Verifying it, rather than asserting it
 
@@ -365,9 +367,11 @@ npm run db:schema    # regenerate supabase/schema.sql from the migrations
 | `OPENAI_API_KEY` | **server only** | no | Enables AI Match Analysis. Omit it and the rest of the app works normally |
 | `OPENAI_MODEL` | server only | no | Defaults to `gpt-4.1-mini` |
 
-Only the two `NEXT_PUBLIC_` values ever reach the browser bundle. The other two
-are read through functions in `src/lib/env.ts` that are only called from server
-code. `.gitignore` ignores `.env*` and un-ignores only `.env.example`.
+Only the two `NEXT_PUBLIC_` values ever reach the browser bundle. They are the
+only things exported from `src/lib/env.ts`; the secrets live in
+`src/lib/env.server.ts`, which imports `"server-only"` — so pulling a secret
+into a client component is a **build error**, not a silent leak. `.gitignore`
+ignores `.env*` and un-ignores only `.env.example`.
 
 ## Supabase setup
 

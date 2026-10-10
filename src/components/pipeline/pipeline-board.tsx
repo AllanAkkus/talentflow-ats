@@ -24,7 +24,7 @@ import {
   STAGE_LABELS,
   STAGE_STYLES,
 } from "@/lib/constants";
-import type { BoardApplication } from "@/lib/data/ats";
+import type { BoardApplication } from "@/types/ats";
 import {
   ALL_JOBS,
   DEFAULT_FILTERS,

@@ -1,13 +1,13 @@
 /**
- * Environment access in one place, so a missing variable fails with a readable
- * message instead of `undefined` reaching the Supabase SDK.
+ * Public environment access.
  *
- * Only the two NEXT_PUBLIC_* values are safe in the browser bundle. The
- * service-role key and the OpenAI key are read through functions that are only
- * ever called from server code (route handlers, server actions, scripts).
+ * Only the two `NEXT_PUBLIC_*` Supabase values live here, because this module
+ * is imported by the browser client. Secrets live in `env.server.ts`, which is
+ * marked `"server-only"` so importing it from a client component is a build
+ * error rather than a silent leak.
  */
 
-function required(name: string, value: string | undefined): string {
+export function required(name: string, value: string | undefined): string {
   if (!value) {
     throw new Error(
       `Missing environment variable ${name}. Copy .env.example to .env.local and fill it in.`,
@@ -29,23 +29,3 @@ export function supabaseAnonKey(): string {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
   );
 }
-
-/** Server-only. Bypasses RLS - never import this into a client component. */
-export function supabaseServiceRoleKey(): string {
-  return required(
-    "SUPABASE_SERVICE_ROLE_KEY",
-    process.env.SUPABASE_SERVICE_ROLE_KEY,
-  );
-}
-
-/** Server-only. */
-export function openAiKey(): string | null {
-  const key = process.env.OPENAI_API_KEY;
-  return key && key.trim().length > 0 ? key : null;
-}
-
-export function isAiConfigured(): boolean {
-  return openAiKey() !== null;
-}
-
-export const OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";

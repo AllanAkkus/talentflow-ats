@@ -24,7 +24,7 @@ import {
   listJobOptions,
   listLatestAssessments,
 } from "@/lib/data/ats";
-import { isAiConfigured } from "@/lib/env";
+import { isAiConfigured } from "@/lib/env.server";
 import { requireWorkspace } from "@/lib/permissions/workspace";
 import { formatDate } from "@/lib/utils";
 import type { AiAnalysisResult } from "@/types/ai";

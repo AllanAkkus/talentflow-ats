@@ -2,7 +2,8 @@ import "server-only";
 
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 
-import { supabaseServiceRoleKey, supabaseUrl } from "@/lib/env";
+import { supabaseUrl } from "@/lib/env";
+import { supabaseServiceRoleKey } from "@/lib/env.server";
 import type { Database } from "@/types/database";
 
 /**
