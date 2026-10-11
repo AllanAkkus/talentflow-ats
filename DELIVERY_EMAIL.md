@@ -23,7 +23,7 @@ Här kommer min leverans av kodtestet.
 [lösenord skickas separat]
 
 **GitHub:**
-[repo-URL]
+https://github.com/AllanAkkus/talentflow-ats
 
 **Demo (5 min):**
 [Loom-URL]

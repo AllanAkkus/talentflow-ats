@@ -13,6 +13,7 @@ as one Next.js app plus one Supabase project.
 ## Live demo
 
 - **App:** _to be filled in after deployment_
+- **Source:** https://github.com/AllanAkkus/talentflow-ats
 - **Admin credentials:** shared privately, never committed to this repository.
 - **Demo data:** two fictional organizations — `Northstar Consulting AB` (the
   showcase tenant, three jobs and eight candidates spread across the pipeline)
@@ -361,7 +362,7 @@ checks, **37/37** app checks.
 ## Local development
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/AllanAkkus/talentflow-ats.git
 cd talentflow-ats
 npm install
 cp .env.example .env.local      # then fill it in - see below
