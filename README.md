@@ -576,17 +576,9 @@ In roughly the order I would do them:
     part of the toolchain.
 
 ## AI-assisted development
+AI-assisted development was used to speed up implementation, debugging, testing, and documentation.
 
-This was built with heavy AI assistance, which the assignment explicitly
-encouraged. Being concrete about what that means:
-
-**Claude Code (Opus 5) was used for** project scaffolding, writing the SQL
-schema and the RLS policies, the Next.js pages and components, the server
-actions, the AI integration, the test suite, the setup scripts and this
-documentation. It also did the debugging: the `lucide-react` v1 brand-icon
-removal, the four `react-hooks/set-state-in-effect` violations, the Vitest
-ESM config failure, and two genuine bugs in the drag-and-drop board (a
-duplicated `setNodeRef`, and a stage change firing the server action twice).
+All functionality was iteratively tested and verified through linting, type checking, automated tests, production builds, and end-to-end testing against the live Supabase environment.
 
 **What I did not do** is accept output without running it. Every claim in this
 README is backed by something that was executed: `npm run lint`,
