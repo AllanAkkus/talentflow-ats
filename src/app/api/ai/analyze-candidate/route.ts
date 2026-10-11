@@ -95,7 +95,18 @@ export async function POST(request: Request) {
   });
 
   if (!outcome.ok) {
-    const status = outcome.reason === "not_configured" ? 503 : 502;
+    /*
+     * 503 for "the feature is not usable in this environment" (missing key,
+     * rejected key, exhausted credits) - the operator has to fix something.
+     * 429 passes the provider's rate limit through so a client could back off.
+     * 502 for a genuine upstream failure.
+     */
+    const status =
+      outcome.reason === "not_configured" || outcome.reason === "quota_exceeded"
+        ? 503
+        : outcome.reason === "rate_limited"
+          ? 429
+          : 502;
     return NextResponse.json({ error: outcome.message }, { status });
   }
 

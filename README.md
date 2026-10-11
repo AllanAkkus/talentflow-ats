@@ -101,9 +101,13 @@ Guardrails, by design:
 - **Structured output, then validated anyway.** The response is constrained by a
   JSON schema at generation time (`strict: true`) and then re-parsed with Zod,
   so a malformed answer becomes a clean error instead of broken UI.
-- **Graceful when unconfigured.** With no `OPENAI_API_KEY`, the panel says
-  _"AI Match Analysis is not configured in this environment."_ and every other
-  feature works normally. No fallback is faked.
+- **Graceful when unconfigured, and specific when it fails.** With no
+  `OPENAI_API_KEY` the panel says _"AI Match Analysis is not configured in this
+  environment."_ A rejected key, an exhausted OpenAI balance and a rate limit
+  each get their own message, because "could not be reached" is misleading when
+  the real problem is an unpaid invoice. Every other feature works normally in
+  all of those cases — the AI call is not on the path of any page render — and
+  no fallback is ever faked.
 - Results are stored in `candidate_assessments` (under the same RLS rules) so
   the last run is visible on page load and a demo does not pay for a model call
   per refresh.

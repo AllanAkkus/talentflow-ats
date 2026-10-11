@@ -30,9 +30,17 @@ export type AnalyzeInput = {
   candidateCvText: string | null;
 };
 
+export type AnalyzeFailureReason =
+  | "not_configured"
+  | "quota_exceeded"
+  | "rate_limited"
+  | "no_content"
+  | "invalid_output"
+  | "provider_error";
+
 export type AnalyzeOutcome =
   | { ok: true; analysis: AiAnalysis; model: string }
-  | { ok: false; reason: "not_configured" | "no_content" | "invalid_output" | "provider_error"; message: string };
+  | { ok: false; reason: AnalyzeFailureReason; message: string };
 
 const SYSTEM_PROMPT = `You are an assistant that helps recruiters assess how well a candidate's CV matches a specific job opening.
 
@@ -148,14 +156,48 @@ export async function analyzeCandidateMatch(
 
     raw = completion.choices[0]?.message?.content ?? null;
   } catch (error) {
-    // Network error, bad key, rate limit, model unavailable. The ATS keeps
-    // working; only this panel reports the failure.
-    const message =
-      error instanceof Error ? error.message : "Unknown provider error";
+    /*
+     * Network error, bad key, exhausted billing, rate limit, model
+     * unavailable. The ATS keeps working either way - the AI call is not on
+     * the path of any page render - but the three cases a recruiter can
+     * actually act on are separated out, because "could not be reached" is
+     * misleading when the real problem is an unpaid invoice.
+     */
+    const status =
+      typeof error === "object" && error !== null && "status" in error
+        ? Number((error as { status: unknown }).status)
+        : undefined;
+    const raw = error instanceof Error ? error.message : "Unknown provider error";
+
+    if (/no credits remaining|insufficient_quota|exceeded your current quota/i.test(raw)) {
+      return {
+        ok: false,
+        reason: "quota_exceeded",
+        message:
+          "AI Match Analysis is configured, but the OpenAI account has no remaining credits. Everything else in TalentFlow is unaffected.",
+      };
+    }
+
+    if (status === 429) {
+      return {
+        ok: false,
+        reason: "rate_limited",
+        message: "The AI provider is rate limiting requests. Try again in a moment.",
+      };
+    }
+
+    if (status === 401 || status === 403) {
+      return {
+        ok: false,
+        reason: "not_configured",
+        message: "The configured OPENAI_API_KEY was rejected by the provider.",
+      };
+    }
+
     return {
       ok: false,
       reason: "provider_error",
-      message: `The AI provider could not be reached (${message}).`,
+      message: `The AI provider could not be reached (${raw}).`,
     };
   }
 

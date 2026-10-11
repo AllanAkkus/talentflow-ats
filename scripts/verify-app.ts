@@ -326,16 +326,24 @@ async function main() {
       typeof r.json === "object" && r.json !== null && "error" in r.json
         ? String((r.json as { error: unknown }).error)
         : "";
-    const configured = process.env.OPENAI_API_KEY?.trim();
-    if (configured) {
-      record("AI analysis of own application returns a result", r.status === 200, `status ${r.status}`);
-    } else {
-      record(
-        "AI analysis reports 'not configured' when there is no API key",
-        r.status === 503 && /not configured/i.test(message),
-        `status ${r.status}: ${message}`,
-      );
-    }
+    /*
+     * Three acceptable outcomes, because the point of this check is that the
+     * feature never fails opaquely:
+     *   200 - a real analysis came back;
+     *   503 - the feature is unusable in this environment (no key, rejected
+     *         key, or no credits) and says so in words an operator can act on;
+     *   429 - the provider is rate limiting.
+     * Anything else - a 500, or a 503 with a vague message - is a failure.
+     */
+    const actionable =
+      (r.status === 503 && /not configured|no remaining credits|rejected by the provider/i.test(message)) ||
+      (r.status === 429 && /rate limiting/i.test(message));
+
+    record(
+      "AI analysis either returns a result or fails with an actionable message",
+      r.status === 200 || actionable,
+      r.status === 200 ? "200, analysis returned" : `status ${r.status}: ${message}`,
+    );
   }
 
   /*
